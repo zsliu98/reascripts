@@ -1,0 +1,195 @@
+// Copyright (C) 2021 and later Cockos Incorporated (Loudness Meter Peak/RMS/LUFS (Cockos))
+// Copyright (C) 2023 and later zsliu98
+// License: LGPL - https://www.gnu.org/licenses/lgpl-3.0.html
+version: 0.1
+author: zsliu98
+about:
+  # Loudness Match (ZL)
+  match the (momentary) loudness of current track (in_pin:main L & main R) with the reference track (in_pin:aux L & aux R)
+
+  - Loudness Measurement: the measurement used for calculating the volume
+  - Lookbehind & Lookahead: the length of sliding momentary window behind/ahead
+  - Strength: the strength of matching, 0.0 indicates no matching, 1.0 indicates completely matching
+  - Threshold: if the (momentary) loudness of current track is less than the threshold, matching will not occur
+changelog:
+  - v0.1 (2023-03-25)
+    - initial alpha release
+
+desc: Loudness Match (ZL)
+tags: dynamics compressor expander
+
+slider1:loud_measurement=0<0,1,1{RMS, LUFS}>Loudness Measurement
+slider2:look_b=250<1,500,1>Lookbehind (ms)
+slider3:look_a=250<0,500,1>Lookahead (ms)
+slider4:strength=0<0,1,0.01>Strength
+slider5:thre=-30<-100,0,1>Threshold (db)
+
+in_pin:main L
+in_pin:main R
+in_pin:aux L
+in_pin:aux R
+out_pin:main L
+out_pin:main R
+
+@init
+
+ext_noinit = 0;
+ext_nodenorm = 1;
+gfx_ext_retina == 0 ? gfx_ext_retina = 1;
+
+function volume.init_lufs_filters() local(Vh Vb db f0 Q K a0) global(srate) (
+  db = 3.999843853973347;
+  f0 = 1681.974450955533;
+  Q = 0.7071752369554196;
+  K = tan($pi * f0 / srate);
+  Vh = pow(10, db / 20);
+  Vb = pow(Vh, 0.4996667741545416);
+  a0 = 1 + K / Q + K * K;
+  this.f1a1 = 2 * (K * K - 1) / a0;
+  this.f1a2 = (1 - K / Q + K * K) / a0;
+  this.f1b0 = (Vh + Vb * K / Q + K * K) / a0;
+  this.f1b1 = 2 * (K * K - Vh) / a0;
+  this.f1b2 = (Vh - Vb * K / Q + K * K) / a0;
+
+  f0 = 38.13547087602444;
+  Q = 0.5003270373238773;
+  K = tan($pi * f0 / srate);
+  this.f2a1 = 2 * (K * K - 1) / (1 + K / Q + K * K);
+  this.f2a2 = (1 - K / Q + K * K) / (1 + K / Q + K * K);
+  this.f2b0 = 1;
+  this.f2b1 = -2;
+  this.f2b2 = 1;
+);
+
+function volume.init(buf, maxsz) global() (
+  this.buf = buf;
+  this.maxsz = maxsz | 0;
+  memset(this.buf, 0, this.maxsz);
+  this.size = 0;
+  this.cnt = 0;
+  this.m_sum = 0;
+  this.f1p1l = this.f1p2l = 0;
+  this.f1p1r = this.f1p2r = 0;
+);
+
+function volume.resize(sz) global(srate) (
+  this.size = min(this.maxsz, (sz * srate * 0.001) | 0);
+);
+
+function volume.insert(spll, splr) local(pre_val, cur_val, f1p0l, f2p0l, f1p0r, f2p0r) global() (
+  pre_val = this.buf[this.cnt];
+  this.measure == 0 ? (
+    cur_val = spll * spll + splr * splr;
+  ) : this.measure == 1 ? (
+    f1p0l = spll - this.f1a1 * this.f1p1l - this.f1a2 * this.f1p2l;
+    spll = this.f1b0 * f1p0l + this.f1b1 * this.f1p1l + this.f1b2 * this.f1p2l;
+    this.f1p2l = this.f1p1l;
+    this.f1p1l = f1p0l;
+
+    f2p0l = spll - this.f2a1 * this.f2p1l - this.f2a2 * this.f2p2l;
+    spll = this.f2b0 * f2p0l + this.f2b1 * this.f2p1l + this.f2b2 * this.f2p2l;
+    this.f2p2l = this.f2p1l;
+    this.f2p1l = f2p0l;
+
+    f1p0r = splr - this.f1a1 * this.f1p1r - this.f1a2 * this.f1p2r;
+    splr = this.f1b0 * f1p0r + this.f1b1 * this.f1p1r + this.f1b2 * this.f1p2r;
+    this.f1p2r = this.f1p1r;
+    this.f1p1r = f1p0r;
+
+    f2p0r = splr - this.f2a1 * this.f2p1r - this.f2a2 * this.f2p2r;
+    splr = this.f2b0 * f2p0r + this.f2b1 * this.f2p1r + this.f2b2 * this.f2p2r;
+    this.f2p2r = this.f2p1r;
+    this.f2p1r = f2p0r;
+
+    cur_val = spll * spll + splr * splr;
+  ) : (
+    cur_val = 0;
+  );
+  this.buf[this.cnt] = cur_val;
+  this.m_sum = this.m_sum + cur_val - pre_val;
+  this.cnt += 1;
+  this.cnt >= this.size ? this.cnt = 0;
+);
+
+function volume.get_average_db() local(avg) global() (
+  avg = this.m_sum / this.size;
+  avg > 0 ? (
+    avg = log(avg) * 10 / log(10);
+    this.measure == 1 ? (
+      avg - 0.691
+    ) : (
+      avg
+    );
+  ) : (
+    -100;
+  );
+);
+
+function delay.init(buf, maxsz) global() (
+  this.maxsz = maxsz | 0;
+  this.bufl = buf;
+  this.bufr = buf + this.maxsz;
+  memset(this.bufl, 0, this.maxsz);
+  memset(this.bufr, 0, this.maxsz);
+  this.size = 0;
+  this.cntl = 0;
+  this.cntr = 0;
+);
+
+function delay.resize(sz) global(srate) (
+  this.size = min(this.maxsz, ((sz * srate * 0.001) | 0) + 1);
+);
+
+function delay.processl(spll) global() (
+  this.bufl[this.cntl] = spll;
+  this.cntl += 1;
+  this.cntl >= this.size ? this.cntl = 0;
+  this.bufl[this.cntl];
+);
+
+function delay.processr(splr) global() (
+  this.bufr[this.cntr] = splr;
+  this.cntr += 1;
+  this.cntr >= this.size ? this.cntr = 0;
+  this.bufr[this.cntr];
+);
+
+cur.volume.init(0, 2 * srate);
+cur.volume.init_lufs_filters();
+ref.volume.init(0 + 4 * srate, 2 * srate);
+ref.volume.init_lufs_filters();
+cur.delay.init(0 + 4 * srate + 4 * srate, 2 * srate);
+pdc_delay = 0;
+
+@slider
+
+cur.volume.resize(look_b + look_a);
+ref.volume.resize(look_b + look_a);
+cur.delay.resize(look_a);
+pdc_delay = cur.delay.size;
+pdc_bot_ch=0;
+pdc_top_ch=2;
+cur.volume.measure = loud_measurement;
+ref.volume.measure = loud_measurement;
+
+@sample
+
+play_state == 1 ? (
+  cur.volume.insert(spl0, spl1);
+  ref.volume.insert(spl2, spl3);
+  
+  ref.avg = ref.volume.get_average_db();
+  cur.avg =  cur.volume.get_average_db();
+  
+  cur.avg >= thre ? (
+    diff = ref.avg - cur.avg;
+    diff *= strength;
+  ) : (
+    diff = 0;
+  );
+  
+  adj = exp(diff * log(10) / 20);
+  
+  spl0 = cur.delay.processl(spl0) * adj;
+  spl1 = cur.delay.processr(spl1) * adj;
+);
