@@ -5,24 +5,28 @@ version: 0.1
 author: zsliu98
 about:
   # Loudness Match (ZL)
-  match the (momentary) loudness of current track (in_pin:main L & main R) with the reference track (in_pin:aux L & aux R)
+  match the (momentary) loudness of current track (in_pin:main L/R) with the reference track (in_pin:aux L/R)
 
   - Loudness Measurement: the measurement used for calculating the volume
+  - Output: output from current track(main L/R) or reference track(aux L/R)
   - Lookbehind & Lookahead: the length of sliding momentary window behind/ahead
   - Strength: the strength of matching, 0.0 indicates no matching, 1.0 indicates completely matching
   - Threshold: if the (momentary) loudness of current track is less than the threshold, matching will not occur
 changelog:
+  - v0.2 (2023-03-28)
+    - add output changing slider
   - v0.1 (2023-03-25)
     - initial alpha release
 
 desc: Loudness Match (ZL)
 tags: dynamics compressor expander
 
-slider1:loud_measurement=0<0,1,1{RMS, LUFS}>Loudness Measurement
-slider2:look_b=250<1,500,1>Lookbehind (ms)
-slider3:look_a=250<0,500,1>Lookahead (ms)
-slider4:strength=0<0,1,0.01>Strength
-slider5:thre=-30<-100,0,1>Threshold (db)
+slider1:loud_measurement=1<0,1,1{RMS,LUFS}>Loudness Measurement
+slider2:out_from=0<0,1,1{main L/R,aux L/R}>Output
+slider3:look_b=200<1,500,1>Lookbehind (ms)
+slider4:look_a=200<0,500,1>Lookahead (ms)
+slider5:strength=0<0,1,0.01>Strength
+slider6:thre=-30<-100,0,1>Threshold (db)
 
 in_pin:main L
 in_pin:main R
@@ -166,7 +170,11 @@ pdc_delay = 0;
 cur.volume.resize(look_b + look_a);
 ref.volume.resize(look_b + look_a);
 cur.delay.resize(look_a);
-pdc_delay = cur.delay.size;
+out_from == 0 ? (
+  pdc_delay = cur.delay.size;
+) : (
+  pdc_delay = 0;
+);
 pdc_bot_ch=0;
 pdc_top_ch=2;
 cur.volume.measure = loud_measurement;
@@ -177,19 +185,25 @@ ref.volume.measure = loud_measurement;
 play_state == 1 ? (
   cur.volume.insert(spl0, spl1);
   ref.volume.insert(spl2, spl3);
-  
-  ref.avg = ref.volume.get_average_db();
-  cur.avg =  cur.volume.get_average_db();
-  
-  cur.avg >= thre ? (
-    diff = ref.avg - cur.avg;
-    diff *= strength;
+  spl0 = cur.delay.processl(spl0);
+  spl1 = cur.delay.processr(spl1);
+  out_from == 0 ? (
+    ref.avg = ref.volume.get_average_db();
+    cur.avg =  cur.volume.get_average_db();
+    
+    cur.avg >= thre ? (
+      diff = ref.avg - cur.avg;
+      diff *= strength;
+    ) : (
+      diff = 0;
+    );
+    
+    adj = exp(diff * log(10) / 20);
+    
+    spl0 *= adj;
+    spl1 *= adj;
   ) : (
-    diff = 0;
+    spl0 = spl2;
+    spl1 = spl3;
   );
-  
-  adj = exp(diff * log(10) / 20);
-  
-  spl0 = cur.delay.processl(spl0) * adj;
-  spl1 = cur.delay.processr(spl1) * adj;
 );
