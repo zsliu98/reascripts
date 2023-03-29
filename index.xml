@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="ZL Scripts" commit="44258790467e889b072c939eadb93c1bc1cffc2c">
+<index version="1" name="ZL Scripts" commit="ff08fc8c1291c1411dc06087fbd1fdb03cf235cd">
   <category name="JSFX/ZLLoudnessMatch">
     <reapack name="ZLLoudnessMatch.jsfx" type="effect">
       <metadata>
@@ -8,8 +8,9 @@
 \widowctrl\hyphauto
 
 {\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 Loudness Match (ZL)\par}
-{\pard \ql \f0 \sa180 \li0 \fi0 match the (momentary) loudness of current track (in_pin:main L & main R) with the reference track (in_pin:aux L & aux R)\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 match the (momentary) loudness of current track (in_pin:main L/R) with the reference track (in_pin:aux L/R)\par}
 {\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Loudness Measurement: the measurement used for calculating the volume\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Output: output from current track(main L/R) or reference track(aux L/R)\par}
 {\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Lookbehind & Lookahead: the length of sliding momentary window behind/ahead\par}
 {\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Strength: the strength of matching, 0.0 indicates no matching, 1.0 indicates completely matching\par}
 {\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Threshold: if the (momentary) loudness of current track is less than the threshold, matching will not occur\sa180\par}
